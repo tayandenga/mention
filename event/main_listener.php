@@ -21,6 +21,7 @@ use phpbb\db\driver\driver_interface;
 use phpbb\notification\manager;
 use phpbb\template\template;
 use phpbb\user;
+use phpbb\user_loader;
 use Symfony\Component\EventDispatcher\EventSubscriberInterface;
 
 /**
@@ -75,6 +76,10 @@ class main_listener implements EventSubscriberInterface
 	 * @var string
 	 */
 	private $php_ext;
+	/**
+	 * @var \phpbb\user_loader
+	 */
+	private $user_loader;
 
 	/**
 	 * Constructor
@@ -89,7 +94,7 @@ class main_listener implements EventSubscriberInterface
 	 * @param string $php_ext
 	 * @internal param viewonline_helper $viewonline_helper
 	 */
-	public function __construct(helper $helper, template $template, driver_interface $db, manager $notification_manager, user $user, auth $auth, config $config, $php_ext)
+	public function __construct(helper $helper, template $template, driver_interface $db, manager $notification_manager, user $user, auth $auth, config $config, $php_ext, user_loader $user_loader)
 	{
 		$this->helper = $helper;
 		$this->template = $template;
@@ -99,6 +104,7 @@ class main_listener implements EventSubscriberInterface
 		$this->auth = $auth;
 		$this->config = $config;
 		$this->php_ext = $php_ext;
+		$this->user_loader = $user_loader;
 	}
 
 	static public function getSubscribedEvents()
@@ -114,6 +120,7 @@ class main_listener implements EventSubscriberInterface
 			'core.text_formatter_s9e_parse_before'  => 'permissions',
 			'core.posting_modify_template_vars'     => 'remove_mention_in_quote',
 			'core.markread_before'                  => 'mark_read',
+			'core.text_formatter_s9e_render_after'     => 'prepare_render_mentionbbcode',
 		];
 	}
 
@@ -461,5 +468,30 @@ class main_listener implements EventSubscriberInterface
 		[
 			'user_ids' => $this->mention_data,
 		]);
+	}
+
+	public function prepare_render_mentionbbcode($event)
+	{
+		if(strlen($event['html']) == 0) {
+			return;
+		}
+
+		$document = new \DOMDocument();
+		$document->loadHTML('<html><body>' . $event['html'] . '</body></html>');
+
+		$xpath = new \DOMXPath($document);
+		$nodes = $xpath->query("//span[@class='mention']");
+		foreach ($nodes as $node)
+		{
+			$userid = $this->user_loader->load_user_by_username(substr(trim($node->nodeValue), 1));
+			if ($userid != ANONYMOUS)
+			{
+				$d = new \DOMDocument();
+				$d->loadHTML('<html><body><span class="mention">@' . $this->user_loader->get_username($userid, 'full', false, false, true) . '</span></body></html>');
+				$node->parentNode->replaceChild($document->importNode($d->getElementsByTagName('body')[0], true), $node);
+			}
+		}
+
+		$event['html'] = utf8_decode($document->saveHTML($document->getElementsByTagName('body')[0]));
 	}
 }

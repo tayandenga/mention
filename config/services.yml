@@ -18,6 +18,7 @@ services:
             - '@auth'
             - '@config'
             - '%core.php_ext%'
+            - '@user_loader'
         tags:
             - { name: event.listener }
 
